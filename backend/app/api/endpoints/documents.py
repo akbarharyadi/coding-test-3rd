@@ -3,13 +3,14 @@ Document API endpoints module
 
 This module provides REST API endpoints for document management including
 upload, retrieval, status checking, listing, and deletion of documents.
-Documents are processed asynchronously with background tasks to avoid
-blocking the API during heavy processing operations like PDF parsing and
-vectorization for similarity search.
+Documents are processed asynchronously via Celery tasks to avoid blocking
+the API during heavy document extraction and vectorization work.
 """
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Any, List, Optional, cast
+from typing import cast as typing_cast
+from celery.app.task import Task
 import os
 import shutil
 from datetime import datetime
@@ -20,15 +21,16 @@ from app.schemas.document import (
     DocumentUploadResponse,
     DocumentStatus
 )
-from app.services.document_processor import DocumentProcessor
 from app.core.config import settings
+from app.tasks.document_tasks import process_document_task as _process_document_task
+
+process_document_task: Task = typing_cast(Task, _process_document_task)
 
 router = APIRouter()
 
 
 @router.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     fund_id: int = 1,
     db: Session = Depends(get_db)
@@ -148,91 +150,20 @@ async def upload_document(
                 pass  # Ignore cleanup errors
         raise HTTPException(status_code=500, detail=f"Error creating document record: {str(e)}")
     
-    # Schedule background processing task to parse and vectorize the document
-    # This prevents blocking the API response while CPU-intensive operations run
+    # Enqueue Celery task to parse and vectorize the document
     document_id_val = cast(int, getattr(document, "id", 0))
-    
-    background_tasks.add_task(
-        process_document_task,
+    task_result = process_document_task.delay(
         document_id_val,
         file_path,
-        fund_id  # Use the provided fund_id, with 1 as default from function signature
+        fund_id,
     )
-    
+
     return DocumentUploadResponse(
         document_id=document_id_val,
-        task_id=None,  # Task ID is not tracked for this simple implementation
+        task_id=task_result.id,
         status="pending",
-        message="Document uploaded successfully. Processing and vectorization started in background."
+        message="Document uploaded successfully. Processing task enqueued.",
     )
-
-
-async def process_document_task(document_id: int, file_path: str, fund_id: int) -> None:
-    """
-    Background task to process document asynchronously.
-    
-    This function runs in the background after a document is uploaded.
-    It updates the document status to 'processing', performs the actual
-    document parsing and vectorization using DocumentProcessor, and
-    updates the database with the final status and any error messages.
-    
-    Args:
-        document_id (int): The unique identifier of the document to process
-        file_path (str): Path to the uploaded PDF file on the filesystem
-        fund_id (int): The fund ID associated with the document
-    
-    Returns:
-        None: This is a background task that runs asynchronously
-    """
-    from app.db.session import SessionLocal
-    
-    db = SessionLocal()
-    
-    try:
-        # Retrieve the document from the database
-        document_row = db.query(Document).filter(Document.id == document_id).first()
-        if not document_row:
-            print(f"Warning: Document with ID {document_id} not found during processing")
-            return
-        
-        document_obj = cast(Document, document_row)
-        
-        # Update status to processing to indicate that background processing has started
-        setattr(document_obj, "parsing_status", "processing")
-        db.commit()
-        
-        # Process document using the DocumentProcessor service
-        processor = DocumentProcessor()
-        result = await processor.process_document(file_path, document_id, fund_id)
-        
-        # Update document status based on processing result
-        status_val = cast(str, result.get("status", "failed"))
-        setattr(document_obj, "parsing_status", status_val)
-        if status_val == "failed":
-            error_msg = result.get("error", "Unknown error occurred during processing")
-            setattr(document_obj, "error_message", cast(str, error_msg))
-        db.commit()
-        
-    except Exception as e:
-        # Handle any unexpected errors during processing
-        try:
-            document_row = db.query(Document).filter(Document.id == document_id).first()
-            if document_row:
-                document_obj = cast(Document, document_row)
-                setattr(document_obj, "parsing_status", "failed")
-                setattr(
-                    document_obj,
-                    "error_message",
-                    f"Unexpected error during processing: {str(e)}",
-                )
-                db.commit()
-        except Exception as db_error:
-            # If we can't update the database with error info, at least log it
-            print(f"Error updating document {document_id} status after processing failure: {str(db_error)}")
-            print(f"Original processing error: {str(e)}")
-    finally:
-        # Always close the database session to prevent connection leaks
-        db.close()
 
 
 @router.get("/{document_id}/status", response_model=DocumentStatus)

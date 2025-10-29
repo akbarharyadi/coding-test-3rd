@@ -1,3 +1,4 @@
+from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
@@ -52,6 +53,10 @@ async def test_process_document_success(monkeypatch, tmp_path):
     assert result["parser_engine"] == "pdfplumber"
     assert result["tables_extracted"]["capital_calls"] == 1
     processor._persist_transactions.assert_called_once()
+    cleaned_tables = processor._persist_transactions.call_args[0][2]
+    row = cleaned_tables["capital_calls"][0]
+    assert row["call_date"].isoformat() == "2023-01-01"
+    assert row["amount"] == Decimal("100.00")
 
 
 @pytest.mark.asyncio

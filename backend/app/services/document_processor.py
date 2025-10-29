@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.transaction import Adjustment, CapitalCall, Distribution
 from app.services.table_parser import TableParser
+from app.services.data_cleaner import TableDataCleaner
 from app.schemas.document import (
     ProcessedDocumentFailure,
     ProcessedDocumentResult,
@@ -75,6 +76,7 @@ class DocumentProcessor:
                                         If None, falls back to settings.DOCUMENT_PROCESSOR_USE_DOCLING
         """
         self.table_parser = TableParser()
+        self.data_cleaner = TableDataCleaner()
         self._db_session = db_session
         if use_docling is None:
             use_docling = settings.DOCUMENT_PROCESSOR_USE_DOCLING
@@ -175,7 +177,10 @@ class DocumentProcessor:
 
                 logger.info(f"Successfully parsed {successful_parses} table candidates for document {document_id}")
 
-                self._persist_transactions(session, fund_id, parsed_tables)
+                cleaned_tables, cleaning_issues = self.data_cleaner.clean(parsed_tables)
+                self._log_cleaning_issues(document_id, cleaning_issues)
+
+                self._persist_transactions(session, fund_id, cleaned_tables)
 
                 text_chunks = chunk_text_segments(
                     text_segments=text_segments,
@@ -187,7 +192,7 @@ class DocumentProcessor:
                     "status": "completed",
                     "document_id": document_id,
                     "fund_id": fund_id,
-                    "tables_extracted": {key: len(value) for key, value in parsed_tables.items()},
+                    "tables_extracted": {key: len(value) for key, value in cleaned_tables.items()},
                     "text_chunks": len(text_chunks),
                     "parser_engine": parser_engine,
                 }
@@ -286,6 +291,14 @@ class DocumentProcessor:
             session.rollback()
             logger.error(f"Error persisting transactions for fund {fund_id}: {str(e)}")
             raise
+
+    def _log_cleaning_issues(self, document_id: int, issues: Dict[str, List[str]]) -> None:
+        """Emit debug logs for rows dropped during validation."""
+        for table_type, messages in issues.items():
+            for message in messages:
+                logger.debug(
+                    "Validation issue for document %s [%s]: %s", document_id, table_type, message
+                )
 
     @contextmanager
     def _get_session(self) -> Generator[Session, None, None]:

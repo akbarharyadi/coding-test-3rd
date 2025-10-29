@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     # Document Processing
     CHUNK_SIZE: int = 1000
     CHUNK_OVERLAP: int = 200
+    DOCUMENT_PROCESSOR_USE_DOCLING: bool = True
     
     # RAG
     TOP_K_RESULTS: int = 5

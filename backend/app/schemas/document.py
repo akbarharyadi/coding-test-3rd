@@ -3,7 +3,7 @@ Document Pydantic schemas
 """
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional
+from typing import Dict, Literal, Optional, TypedDict
 
 
 class DocumentBase(BaseModel):
@@ -49,3 +49,24 @@ class DocumentUploadResponse(BaseModel):
     task_id: Optional[str] = None
     status: str
     message: str
+
+
+class ProcessedDocumentSuccess(TypedDict):
+    """Successful document processing summary"""
+    status: Literal["completed"]
+    document_id: int
+    fund_id: int
+    tables_extracted: Dict[str, int]
+    text_chunks: int
+    parser_engine: str
+
+
+class ProcessedDocumentFailure(TypedDict):
+    """Failed document processing summary"""
+    status: Literal["failed"]
+    document_id: int
+    fund_id: int
+    error: str
+
+
+ProcessedDocumentResult = ProcessedDocumentSuccess | ProcessedDocumentFailure

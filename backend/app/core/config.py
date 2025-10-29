@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # Vector Store
     VECTOR_STORE_PATH: str = "./vector_store"
     FAISS_INDEX_PATH: str = "./faiss_index"
+    OLLAMA_BASE_URL: str = ""
+    OLLAMA_EMBED_MODEL: str = "nomic-embed-text"
+    OLLAMA_EMBED_DIMENSION: int = 768
     
     # File Upload
     UPLOAD_DIR: str = "./uploads"

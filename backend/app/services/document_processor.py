@@ -20,6 +20,7 @@ from app.db.session import SessionLocal
 from app.models.transaction import Adjustment, CapitalCall, Distribution
 from app.services.table_parser import TableParser
 from app.services.data_cleaner import TableDataCleaner
+from app.services.vector_store import VectorStore
 from app.schemas.document import (
     ProcessedDocumentFailure,
     ProcessedDocumentResult,
@@ -65,7 +66,12 @@ class DocumentProcessor:
     with automatic fallback between them based on availability and effectiveness.
     """
 
-    def __init__(self, db_session: Optional[Session] = None, use_docling: Optional[bool] = None):
+    def __init__(
+        self,
+        db_session: Optional[Session] = None,
+        use_docling: Optional[bool] = None,
+        vector_store_cls: Optional[type] = None,
+    ):
         """
         Initialize the DocumentProcessor.
         
@@ -77,6 +83,7 @@ class DocumentProcessor:
         """
         self.table_parser = TableParser()
         self.data_cleaner = TableDataCleaner()
+        self.vector_store_cls = vector_store_cls or VectorStore
         self._db_session = db_session
         if use_docling is None:
             use_docling = settings.DOCUMENT_PROCESSOR_USE_DOCLING
@@ -188,6 +195,14 @@ class DocumentProcessor:
                     chunk_overlap=settings.CHUNK_OVERLAP,
                 )
 
+                embeddings_stored = await self._store_text_chunks(
+                    session=session,
+                    document_id=document_id,
+                    fund_id=fund_id,
+                    parser_engine=parser_engine,
+                    text_chunks=text_chunks,
+                )
+
                 result: ProcessedDocumentSuccess = {
                     "status": "completed",
                     "document_id": document_id,
@@ -195,9 +210,16 @@ class DocumentProcessor:
                     "tables_extracted": {key: len(value) for key, value in cleaned_tables.items()},
                     "text_chunks": len(text_chunks),
                     "parser_engine": parser_engine,
+                    "embeddings_stored": embeddings_stored,
                 }
                 
-                logger.info(f"Successfully processed document {document_id}. Tables: {result['tables_extracted']}, Chunks: {result['text_chunks']}")
+                logger.info(
+                    "Successfully processed document %s. Tables: %s, Chunks: %s, Embeddings: %s",
+                    document_id,
+                    result["tables_extracted"],
+                    result["text_chunks"],
+                    embeddings_stored,
+                )
                 return result
                 
             except Exception as exc:  # pragma: no cover - unexpected processing errors
@@ -214,6 +236,47 @@ class DocumentProcessor:
     # ------------------------------------------------------------------ #
     # Persistence helpers
     # ------------------------------------------------------------------ #
+    async def _store_text_chunks(
+        self,
+        session: Session,
+        document_id: int,
+        fund_id: int,
+        parser_engine: str,
+        text_chunks: List[Dict[str, Any]],
+    ) -> int:
+        """Persist text chunks to the vector store."""
+        if not text_chunks:
+            return 0
+
+        vector_store = self.vector_store_cls(db=session)
+        stored = 0
+        for chunk in text_chunks:
+            content = chunk.get("content")
+            if not content:
+                continue
+
+            metadata = dict(chunk.get("metadata") or {})
+            metadata.update(
+                {
+                    "document_id": document_id,
+                    "fund_id": fund_id,
+                    "parser_engine": parser_engine,
+                }
+            )
+
+            try:
+                await vector_store.add_document(content=content, metadata=metadata)
+                stored += 1
+            except Exception as exc:  # pragma: no cover - logging only
+                logger.warning(
+                    "Failed to store vector chunk for document %s (offset %s-%s): %s",
+                    document_id,
+                    metadata.get("offset_start"),
+                    metadata.get("offset_end"),
+                    exc,
+                )
+        return stored
+
     def _persist_transactions(
         self,
         session: Session,

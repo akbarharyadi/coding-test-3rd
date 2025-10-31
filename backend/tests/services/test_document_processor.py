@@ -2,6 +2,7 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import numpy as np
 
 from app.helpers.document_utils import TableCandidate, TextSegment
 from app.services.document_processor import DocumentProcessor
@@ -33,10 +34,11 @@ async def test_process_document_success(monkeypatch, tmp_path):
         "app.services.document_processor.chunk_text_segments",
         lambda **kwargs: [{"content": "chunk", "metadata": {}}],
     )
+    monkeypatch.setattr("app.services.document_processor.FAISS_AVAILABLE", False, raising=False)
 
     processor = DocumentProcessor(db_session=MagicMock(), use_docling=False)
     vector_store_instance = MagicMock()
-    vector_store_instance.add_document = AsyncMock(return_value=None)
+    vector_store_instance.add_document = AsyncMock(return_value=np.array([0.1, 0.2], dtype=np.float32))
     processor.vector_store_cls = MagicMock(return_value=vector_store_instance)
 
     parsed_table = ParsedTable(

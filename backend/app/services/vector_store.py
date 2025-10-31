@@ -261,7 +261,7 @@ class VectorStore:
             logger.error("Error ensuring document_embeddings schema: %s", exc)
             self.db.rollback()
     
-    async def add_document(self, content: str, metadata: Dict[str, Any]) -> None:
+    async def add_document(self, content: str, metadata: Dict[str, Any]) -> np.ndarray:
         """
         Add a document to the vector store with its embedding.
         
@@ -274,7 +274,7 @@ class VectorStore:
             metadata: Dictionary containing metadata like document_id, fund_id, etc.
             
         Returns:
-            None
+            np.ndarray: Embedding vector generated for the content
             
         Raises:
             Exception: If the database operation fails
@@ -333,6 +333,7 @@ class VectorStore:
                 metadata_with_content.get("fund_id"), 
                 metadata_with_content.get("document_id")
             )
+            return embedding
         except Exception as exc:
             logger.error("Error adding document chunk to vector store: %s", exc)
             self.db.rollback()

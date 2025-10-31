@@ -21,6 +21,7 @@ from app.models.transaction import Adjustment, CapitalCall, Distribution
 from app.services.table_parser import TableParser
 from app.services.data_cleaner import TableDataCleaner
 from app.services.vector_store import VectorStore
+from app.services.faiss_index import FAISS_AVAILABLE, FaissIndexManager
 from app.schemas.document import (
     ProcessedDocumentFailure,
     ProcessedDocumentResult,
@@ -250,6 +251,8 @@ class DocumentProcessor:
 
         vector_store = self.vector_store_cls(db=session)
         stored = 0
+        embeddings_for_faiss: List[Any] = []
+        metadata_for_faiss: List[Dict[str, Any]] = []
         for chunk in text_chunks:
             content = chunk.get("content")
             if not content:
@@ -265,8 +268,10 @@ class DocumentProcessor:
             )
 
             try:
-                await vector_store.add_document(content=content, metadata=metadata)
+                embedding = await vector_store.add_document(content=content, metadata=metadata)
                 stored += 1
+                embeddings_for_faiss.append(embedding)
+                metadata_for_faiss.append(metadata)
             except Exception as exc:  # pragma: no cover - logging only
                 logger.warning(
                     "Failed to store vector chunk for document %s (offset %s-%s): %s",
@@ -274,6 +279,14 @@ class DocumentProcessor:
                     metadata.get("offset_start"),
                     metadata.get("offset_end"),
                     exc,
+                )
+        if embeddings_for_faiss and FAISS_AVAILABLE:
+            try:
+                manager = FaissIndexManager(db=session)
+                manager.append_embeddings(embeddings_for_faiss, metadata_for_faiss)
+            except Exception as exc:  # pragma: no cover - logging only
+                logger.warning(
+                    "Failed to update FAISS index for document %s: %s", document_id, exc
                 )
         return stored
 

@@ -59,6 +59,7 @@ class ProcessedDocumentSuccess(TypedDict):
     tables_extracted: Dict[str, int]
     text_chunks: int
     parser_engine: str
+    embeddings_stored: int
 
 
 class ProcessedDocumentFailure(TypedDict):

@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Send, Loader2, FileText } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { Send, Loader2, FileText, Menu } from 'lucide-react'
 import { chatApi } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
+import ConversationSidebar from '@/components/ConversationSidebar'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -19,14 +21,54 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [conversationId, setConversationId] = useState<string>()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const queryClient = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  const createNewConversation = async () => {
+    try {
+      const conv = await chatApi.createConversation(undefined);
+      setConversationId(conv.conversation_id);
+      // Don't clear messages here, since we're adding to the same session
+      return conv.conversation_id;
+    } catch (error) {
+      console.error('Error creating conversation:', error);
+      return null;
+    }
+  }
+
+  const refreshConversations = () => {
+    // This function will be passed to the sidebar to allow it to refresh conversations
+    // We can trigger a refresh by calling queryClient.invalidateQueries
+    // But we need to import QueryClient from '@tanstack/react-query' to do that
+  }
+
+  const loadConversation = async (id: string) => {
+    try {
+      const conv = await chatApi.getConversation(id);
+      setConversationId(conv.conversation_id);
+      
+      // Convert the conversation messages to our Message format
+      const formattedMessages: Message[] = conv.messages.map((msg: any) => ({
+        role: msg.role,
+        content: msg.content,
+        timestamp: new Date(msg.timestamp)
+      }));
+      setMessages(formattedMessages);
+    } catch (error) {
+      console.error('Error loading conversation:', error);
+      // If there's an error loading the conversation, clear it
+      setConversationId(undefined);
+      setMessages([]);
+    }
+  }
+
   useEffect(() => {
-    // Create conversation on mount
-    chatApi.createConversation().then(conv => {
-      setConversationId(conv.conversation_id)
-    })
-  }, [])
+    if (conversationId) {
+      // Load the selected conversation when conversationId changes
+      loadConversation(conversationId);
+    }
+  }, [conversationId])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -35,6 +77,15 @@ export default function ChatPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!input.trim() || loading) return
+
+    // Create a new conversation if none exists
+    let currentConversationId = conversationId;
+    if (!currentConversationId) {
+      currentConversationId = await createNewConversation();
+      if (!currentConversationId) {
+        return; // If we couldn't create a conversation, exit
+      }
+    }
 
     const userMessage: Message = {
       role: 'user',
@@ -47,7 +98,7 @@ export default function ChatPage() {
     setLoading(true)
 
     try {
-      const response = await chatApi.query(input, undefined, conversationId)
+      const response = await chatApi.query(input, undefined, currentConversationId)
 
       const assistantMessage: Message = {
         role: 'assistant',
@@ -59,6 +110,9 @@ export default function ChatPage() {
       }
 
       setMessages(prev => [...prev, assistantMessage])
+      
+      // Refresh the conversation list to update title and show the conversation in sidebar
+      await queryClient.invalidateQueries({ queryKey: ['conversations'] });
     } catch (error: any) {
       const errorMessage: Message = {
         role: 'assistant',
@@ -81,100 +135,148 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto h-[calc(100vh-12rem)]">
-      <div className="mb-4">
-        <h1 className="text-4xl font-bold mb-2">Fund Analysis Chat</h1>
-        <p className="text-gray-600">
-          Ask questions about fund performance, metrics, and transactions
-        </p>
+    <div className="flex h-screen bg-gray-50">
+      {/* Sidebar - Hidden on mobile by default, shown with button */}
+      <div className="hidden md:block w-64 border-r bg-white flex-shrink-0">
+        <ConversationSidebar
+          currentConversationId={conversationId}
+          onSelectConversation={handleSelectConversation}
+          onCreateNewConversation={createNewConversation}
+          onRefreshConversations={() => queryClient.invalidateQueries({ queryKey: ['conversations'] })}
+          sidebarOpen={true}
+          setSidebarOpen={() => {}} // No need to manage state here since it's always open on desktop
+        />
       </div>
 
-      <div className="bg-white rounded-lg shadow-md flex flex-col h-full">
-        {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {messages.length === 0 && (
-            <div className="text-center py-12">
-              <div className="text-gray-400 mb-4">
-                <FileText className="w-16 h-16 mx-auto" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                Start a conversation
-              </h3>
-              <p className="text-gray-600 mb-6">
-                Try asking questions like:
-              </p>
-              <div className="space-y-2 max-w-md mx-auto">
-                <SampleQuestion
-                  question="What is the current DPI?"
-                  onClick={() => setInput("What is the current DPI?")}
-                />
-                <SampleQuestion
-                  question="Calculate the IRR for this fund"
-                  onClick={() => setInput("Calculate the IRR for this fund")}
-                />
-                <SampleQuestion
-                  question="What does Paid-In Capital mean?"
-                  onClick={() => setInput("What does Paid-In Capital mean?")}
-                />
-              </div>
-            </div>
-          )}
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && (
+        <div className="md:hidden absolute z-20 w-64 border-r bg-white flex-shrink-0 h-full">
+          <ConversationSidebar
+            currentConversationId={conversationId}
+            onSelectConversation={handleSelectConversation}
+            onCreateNewConversation={createNewConversation}
+            onRefreshConversations={() => queryClient.invalidateQueries({ queryKey: ['conversations'] })}
+            sidebarOpen={sidebarOpen}
+            setSidebarOpen={setSidebarOpen}
+          />
+        </div>
+      )}
 
-          {messages.map((message, index) => (
-            <MessageBubble key={index} message={message} />
-          ))}
-
-          {loading && (
-            <div className="flex items-center space-x-2 text-gray-500">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span>Thinking...</span>
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
+      {/* Main content */}
+      <div className="flex-1 flex flex-col overflow-hidden max-w-5xl mx-auto w-full">
+        {/* Mobile header with menu button */}
+        <div className="md:hidden p-4 border-b bg-white flex items-center justify-between">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-2 rounded-md text-gray-600 hover:bg-gray-100"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <h1 className="text-lg font-semibold">Fund Analysis Chat</h1>
+          <div className="w-10"></div> {/* Spacer for alignment */}
         </div>
 
-        {/* Input Area */}
-        <div className="border-t p-4">
-          <form onSubmit={handleSubmit} className="flex space-x-2 items-end">
-            <div className="flex-1">
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask a question about the fund... (Shift+Enter for new line)"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                disabled={loading}
-                rows={1}
-                style={{
-                  minHeight: '42px',
-                  maxHeight: '200px',
-                  height: 'auto',
-                  overflowY: input.split('\n').length > 5 ? 'auto' : 'hidden'
-                }}
-                onInput={(e) => {
-                  const target = e.target as HTMLTextAreaElement
-                  target.style.height = 'auto'
-                  target.style.height = `${Math.min(target.scrollHeight, 200)}px`
-                }}
-              />
+        {/* Chat content */}
+        <div className="flex-1 overflow-hidden flex flex-col">
+          <div className="p-4 border-b hidden md:block bg-white">
+            <div className="flex items-center justify-between max-w-5xl mx-auto w-full">
+              <h1 className="text-2xl font-bold">Fund Analysis Chat</h1>
+              <p className="text-gray-600 hidden lg:block">Ask questions about fund performance, metrics, and transactions</p>
             </div>
-            <button
-              type="submit"
-              disabled={loading || !input.trim()}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 h-[42px]"
-            >
-              <Send className="w-4 h-4" />
-              <span>Send</span>
-            </button>
-          </form>
-          <p className="text-xs text-gray-500 mt-2">
-            Press <kbd className="px-1 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">Enter</kbd> to send, <kbd className="px-1 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">Shift+Enter</kbd> for new line
-          </p>
+          </div>
+
+          <div className="flex-1 overflow-hidden flex flex-col max-w-5xl mx-auto w-full"> {/* This container for the actual chat */}
+            {/* Messages Area */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50">
+              {messages.length === 0 && (
+                <div className="text-center py-12 h-full flex flex-col justify-center">
+                  <div className="text-gray-400 mb-4">
+                    <FileText className="w-16 h-16 mx-auto" />
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">
+                    Start a conversation
+                  </h3>
+                  <p className="text-gray-600 mb-6">
+                    Try asking questions like:
+                  </p>
+                  <div className="space-y-2 max-w-md mx-auto">
+                    <SampleQuestion
+                      question="What is the current DPI?"
+                      onClick={() => setInput("What is the current DPI?")}
+                    />
+                    <SampleQuestion
+                      question="Calculate the IRR for this fund"
+                      onClick={() => setInput("Calculate the IRR for this fund")}
+                    />
+                    <SampleQuestion
+                      question="What does Paid-In Capital mean?"
+                      onClick={() => setInput("What does Paid-In Capital mean?")}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {messages.map((message, index) => (
+                <MessageBubble key={index} message={message} />
+              ))}
+
+              {loading && (
+                <div className="flex items-center space-x-2 text-gray-500">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Thinking...</span>
+                </div>
+              )}
+
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Input Area */}
+            <div className="border-t p-4 bg-white m-4 rounded-lg shadow-sm">
+              <form onSubmit={handleSubmit} className="flex space-x-2 items-end">
+                <div className="flex-1">
+                  <textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Ask a question about the fund... (Shift+Enter for new line)"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    disabled={loading}
+                    rows={1}
+                    style={{
+                      minHeight: '42px',
+                      maxHeight: '200px',
+                      height: 'auto',
+                      overflowY: input.split('\n').length > 5 ? 'auto' : 'hidden'
+                    }}
+                    onInput={(e) => {
+                      const target = e.target as HTMLTextAreaElement
+                      target.style.height = 'auto'
+                      target.style.height = `${Math.min(target.scrollHeight, 200)}px`
+                    }}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading || !input.trim()}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 h-[42px]"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>Send</span>
+                </button>
+              </form>
+              <p className="text-xs text-gray-500 mt-2">
+                Press <kbd className="px-1 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">Enter</kbd> to send, <kbd className="px-1 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">Shift+Enter</kbd> for new line
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   )
+
+  function handleSelectConversation(id: string) {
+    setConversationId(id);
+  }
 }
 
 function MessageBubble({ message }: { message: Message }) {

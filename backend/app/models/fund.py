@@ -24,3 +24,4 @@ class Fund(Base):
     distributions = relationship("Distribution", back_populates="fund")
     adjustments = relationship("Adjustment", back_populates="fund")
     documents = relationship("Document", back_populates="fund")
+    conversations = relationship("Conversation", back_populates="fund")

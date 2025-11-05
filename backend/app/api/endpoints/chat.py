@@ -3,10 +3,12 @@ Chat API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import Dict, Any
+from typing import Dict, Any, List
 import uuid
 from datetime import datetime
 from app.db.session import get_db
+from app.models.conversation import Conversation as ConversationModel, Message as MessageModel
+from app.models.fund import Fund
 from app.schemas.chat import (
     ChatQueryRequest,
     ChatQueryResponse,
@@ -15,11 +17,9 @@ from app.schemas.chat import (
     ChatMessage
 )
 from app.services.query_engine import QueryEngine
+import json
 
 router = APIRouter()
-
-# In-memory conversation storage (replace with Redis/DB in production)
-conversations: Dict[str, Dict[str, Any]] = {}
 
 
 @router.post("/query", response_model=ChatQueryResponse)
@@ -31,8 +31,15 @@ async def process_chat_query(
     
     # Get conversation history if conversation_id provided
     conversation_history = []
-    if request.conversation_id and request.conversation_id in conversations:
-        conversation_history = conversations[request.conversation_id]["messages"]
+    if request.conversation_id:
+        # Get recent messages for this conversation (last 10 messages to avoid sending too much)
+        messages_db = db.query(MessageModel).filter(
+            MessageModel.conversation_id == request.conversation_id
+        ).order_by(MessageModel.timestamp.desc()).limit(10).all()
+        conversation_history = [
+            {"role": msg.role, "content": msg.content, "timestamp": msg.timestamp}
+            for msg in reversed(messages_db)  # Reverse to get chronological order
+        ]
     
     # Process query
     query_engine = QueryEngine(db)
@@ -42,69 +49,145 @@ async def process_chat_query(
         conversation_history=conversation_history
     )
     
-    # Update conversation history
+    # Save the conversation to database
     if request.conversation_id:
-        if request.conversation_id not in conversations:
-            conversations[request.conversation_id] = {
-                "fund_id": request.fund_id,
-                "messages": [],
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
-            }
+        # First, check if this is the first message in the conversation
+        existing_messages_count = db.query(MessageModel).filter(
+            MessageModel.conversation_id == request.conversation_id
+        ).count()
         
-        conversations[request.conversation_id]["messages"].extend([
-            {"role": "user", "content": request.query, "timestamp": datetime.utcnow()},
-            {"role": "assistant", "content": response["answer"], "timestamp": datetime.utcnow()}
-        ])
-        conversations[request.conversation_id]["updated_at"] = datetime.utcnow()
+        # Create user message
+        user_msg = MessageModel(
+            conversation_id=request.conversation_id,
+            role="user",
+            content=request.query,
+            timestamp=datetime.utcnow()
+        )
+        db.add(user_msg)
+        
+        # Create assistant message
+        assistant_msg = MessageModel(
+            conversation_id=request.conversation_id,
+            role="assistant",
+            content=response["answer"],
+            timestamp=datetime.utcnow(),
+            sources=json.dumps(response.get("sources", [])) if response.get("sources") else None,
+            metrics=json.dumps(response.get("metrics", {})) if response.get("metrics") else None
+        )
+        db.add(assistant_msg)
+        
+        # Update conversation title if this is the first message in the conversation
+        conversation_db = db.query(ConversationModel).filter(
+            ConversationModel.conversation_id == request.conversation_id
+        ).first()
+        if conversation_db and existing_messages_count == 0:  # This is the first message
+            conversation_db.title = request.query[:100]  # Use first 100 chars as title
+            conversation_db.updated_at = datetime.utcnow()
+        
+        db.commit()
     
     return ChatQueryResponse(**response)
 
 
 @router.post("/conversations", response_model=Conversation)
-async def create_conversation(request: ConversationCreate):
+async def create_conversation(request: ConversationCreate, db: Session = Depends(get_db)):
     """Create a new conversation"""
     conversation_id = str(uuid.uuid4())
     
-    conversations[conversation_id] = {
-        "fund_id": request.fund_id,
-        "messages": [],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
-    }
+    # Create conversation in database
+    new_conversation = ConversationModel(
+        conversation_id=conversation_id,
+        fund_id=request.fund_id,
+        title=None  # Title will be set when first message is added
+    )
+    db.add(new_conversation)
+    db.commit()
+    db.refresh(new_conversation)
     
     return Conversation(
         conversation_id=conversation_id,
-        fund_id=request.fund_id,
+        fund_id=new_conversation.fund_id,
         messages=[],
-        created_at=conversations[conversation_id]["created_at"],
-        updated_at=conversations[conversation_id]["updated_at"]
+        created_at=new_conversation.created_at,
+        updated_at=new_conversation.updated_at
     )
 
 
+@router.get("/conversations", response_model=List[Conversation])
+async def list_conversations(
+    fund_id: int = None,  # Optional: filter by fund ID
+    limit: int = 20,      # Optional: limit number of conversations
+    offset: int = 0,      # Optional: pagination offset
+    db: Session = Depends(get_db)
+):
+    """List conversations with optional filters"""
+    query = db.query(ConversationModel).order_by(ConversationModel.updated_at.desc())
+    
+    if fund_id is not None:
+        query = query.filter(ConversationModel.fund_id == fund_id)
+    
+    conversations_db = query.offset(offset).limit(limit).all()
+    
+    # Convert to response format (without messages to keep it lightweight)
+    conversations = []
+    for conv_db in conversations_db:
+        conversations.append(Conversation(
+            conversation_id=conv_db.conversation_id,
+            fund_id=conv_db.fund_id,
+            title=conv_db.title,  # Include the title in the response
+            messages=[],  # Don't include messages in list view for performance
+            created_at=conv_db.created_at,
+            updated_at=conv_db.updated_at
+        ))
+    
+    return conversations
+
+
 @router.get("/conversations/{conversation_id}", response_model=Conversation)
-async def get_conversation(conversation_id: str):
-    """Get conversation history"""
-    if conversation_id not in conversations:
+async def get_conversation(conversation_id: str, db: Session = Depends(get_db)):
+    """Get conversation history with all messages"""
+    conversation_db = db.query(ConversationModel).filter(
+        ConversationModel.conversation_id == conversation_id
+    ).first()
+    
+    if not conversation_db:
         raise HTTPException(status_code=404, detail="Conversation not found")
     
-    conv = conversations[conversation_id]
+    # Get all messages for this conversation
+    messages_db = db.query(MessageModel).filter(
+        MessageModel.conversation_id == conversation_id
+    ).order_by(MessageModel.timestamp.asc()).all()
+    
+    # Convert messages to schema
+    messages = [
+        ChatMessage(role=msg.role, content=msg.content, timestamp=msg.timestamp)
+        for msg in messages_db
+    ]
     
     return Conversation(
-        conversation_id=conversation_id,
-        fund_id=conv["fund_id"],
-        messages=[ChatMessage(**msg) for msg in conv["messages"]],
-        created_at=conv["created_at"],
-        updated_at=conv["updated_at"]
+        conversation_id=conversation_db.conversation_id,
+        fund_id=conversation_db.fund_id,
+        messages=messages,
+        created_at=conversation_db.created_at,
+        updated_at=conversation_db.updated_at
     )
 
 
 @router.delete("/conversations/{conversation_id}")
-async def delete_conversation(conversation_id: str):
-    """Delete a conversation"""
-    if conversation_id not in conversations:
+async def delete_conversation(conversation_id: str, db: Session = Depends(get_db)):
+    """Delete a conversation and all its messages"""
+    conversation_db = db.query(ConversationModel).filter(
+        ConversationModel.conversation_id == conversation_id
+    ).first()
+    
+    if not conversation_db:
         raise HTTPException(status_code=404, detail="Conversation not found")
     
-    del conversations[conversation_id]
+    # Delete all messages for this conversation
+    db.query(MessageModel).filter(MessageModel.conversation_id == conversation_id).delete()
+    
+    # Delete the conversation itself
+    db.delete(conversation_db)
+    db.commit()
     
     return {"message": "Conversation deleted successfully"}

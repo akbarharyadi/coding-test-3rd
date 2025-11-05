@@ -100,6 +100,21 @@ export const chatApi = {
     const response = await api.get(`/api/chat/conversations/${conversationId}`)
     return response.data
   },
+
+  listConversations: async (fundId?: number, limit: number = 20, offset: number = 0) => {
+    const params = new URLSearchParams();
+    if (fundId) params.append('fund_id', fundId.toString());
+    params.append('limit', limit.toString());
+    params.append('offset', offset.toString());
+
+    const response = await api.get(`/api/chat/conversations?${params.toString()}`);
+    return response.data;
+  },
+
+  deleteConversation: async (conversationId: string) => {
+    const response = await api.delete(`/api/chat/conversations/${conversationId}`);
+    return response.data;
+  },
 }
 
 // Metrics APIs

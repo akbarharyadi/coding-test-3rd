@@ -46,6 +46,7 @@ class Conversation(BaseModel):
     """Conversation schema"""
     conversation_id: str
     fund_id: Optional[int] = None
+    title: Optional[str] = None
     messages: List[ChatMessage] = []
     created_at: datetime
     updated_at: datetime

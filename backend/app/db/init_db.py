@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.models.fund import Fund  # noqa: F401
 from app.models.transaction import CapitalCall, Distribution, Adjustment  # noqa: F401
 from app.models.document import Document  # noqa: F401
+from app.models.conversation import Conversation, Message  # noqa: F401
 
 
 def init_db():

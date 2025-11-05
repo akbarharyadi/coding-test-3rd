@@ -71,6 +71,11 @@ export const fundApi = {
     const response = await api.get(`/api/funds/${fundId}/metrics`)
     return response.data
   },
+  
+  getHistoricalData: async (fundId: number) => {
+    const response = await api.get(`/api/funds/${fundId}/historical_data`)
+    return response.data
+  },
 }
 
 // Chat APIs

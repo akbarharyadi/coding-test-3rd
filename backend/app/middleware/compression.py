@@ -101,19 +101,30 @@ class CompressionMiddleware(BaseHTTPMiddleware):
         Returns:
             Compressed response or original if too small
         """
-        # Get response body
-        body = b""
-        async for chunk in response.body_iterator:
-            body += chunk
+        # Check if response has a readable body
+        if hasattr(response, 'body') and response.body:
+            body = response.body if isinstance(response.body, bytes) else str(response.body).encode()
+        else:
+            # Get response body by reading from the body iterator (this is tricky with Starlette)
+            # For this implementation we'll use the body attribute if available, otherwise skip
+            body = b""
+            if hasattr(response, 'body') and response.body is not None:
+                if isinstance(response.body, bytes):
+                    body = response.body
+                elif isinstance(response.body, str):
+                    body = response.body.encode()
+                elif isinstance(response.body, (int, float)):
+                    body = str(response.body).encode()
+                else:
+                    try:
+                        body = str(response.body).encode()
+                    except Exception:
+                        # If we can't convert to bytes, return original response
+                        return response
 
         # Skip compression if body is too small
         if len(body) < self.minimum_size:
-            return Response(
-                content=body,
-                status_code=response.status_code,
-                headers=dict(response.headers),
-                media_type=response.media_type,
-            )
+            return response
 
         # Compress body
         compressed_body = gzip.compress(body, compresslevel=self.compression_level)
@@ -153,17 +164,23 @@ class CompressionMiddleware(BaseHTTPMiddleware):
 
         async def compressed_stream():
             """Generator that yields compressed chunks"""
-            compressor = gzip.GzipFile(
-                fileobj=None, mode="wb", compresslevel=self.compression_level
+            # For streaming compression, we'll compress each chunk individually
+            # using a different approach than the file-based compressor
+            import zlib
+            
+            # Initialize the compressor
+            compressor = zlib.compressobj(
+                wbits=16 + zlib.MAX_WBITS,  # gzip format
+                level=self.compression_level
             )
-
+            
             async for chunk in response.body_iterator:
                 if chunk:
                     compressed_chunk = compressor.compress(chunk)
                     if compressed_chunk:
                         yield compressed_chunk
 
-            # Flush remaining data
+            # Get any remaining compressed data
             final_chunk = compressor.flush()
             if final_chunk:
                 yield final_chunk

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from celery import Celery
 import logging
+import sys
+import platform
 
 from app.core.config import settings
 
@@ -43,10 +45,10 @@ celery_app: CeleryApp = Celery(
 celery_app.autodiscover_tasks(["app.tasks"])
 
 # Configure Celery application settings
-# 
+#
 # The following configuration options are set to ensure proper task
 # execution, serialization, and timezone handling:
-# 
+#
 # - task_serializer: Serialization format for task messages (JSON)
 # - accept_content: Content types that the worker accepts (JSON only)
 # - result_serializer: Serialization format for task results (JSON)
@@ -57,21 +59,32 @@ celery_app.autodiscover_tasks(["app.tasks"])
 # - result_expires: Time in seconds for result expiration (1 hour)
 # - worker_prefetch_multiplier: Number of tasks to prefetch per worker
 # - task_acks_late: Acknowledge tasks after execution
-celery_app.conf.update(
-    task_serializer="json",          # Serialize tasks as JSON
-    accept_content=["json"],         # Only accept JSON content
-    result_serializer="json",        # Serialize results as JSON
-    timezone="UTC",                  # Use UTC timezone for tasks
-    enable_utc=True,                 # Enable UTC timezone by default
-    broker_connection_retry_on_startup=True,  # Retry connection on startup
-    result_expires=3600,             # Results expire after 1 hour (3600 seconds)
-    worker_prefetch_multiplier=1,    # Process one task at a time per worker
-    task_acks_late=True,             # Acknowledge tasks after execution
-    task_routes={
+# - worker_pool: Use solo pool on Windows to avoid multiprocessing issues
+
+# Detect if running on Windows and configure pool accordingly
+config_dict = {
+    "task_serializer": "json",          # Serialize tasks as JSON
+    "accept_content": ["json"],         # Only accept JSON content
+    "result_serializer": "json",        # Serialize results as JSON
+    "timezone": "UTC",                  # Use UTC timezone for tasks
+    "enable_utc": True,                 # Enable UTC timezone by default
+    "broker_connection_retry_on_startup": True,  # Retry connection on startup
+    "result_expires": 3600,             # Results expire after 1 hour (3600 seconds)
+    "worker_prefetch_multiplier": 1,    # Process one task at a time per worker
+    "task_acks_late": True,             # Acknowledge tasks after execution
+    "task_routes": {
         # Route document-related tasks to the 'documents' queue
         "app.tasks.document_tasks.*": {"queue": "documents"},
     },
-)
+}
+
+# Add Windows-specific configuration
+if platform.system() == "Windows":
+    logger.info("Detected Windows platform - configuring Celery with 'solo' pool")
+    config_dict["worker_pool"] = "solo"
+    config_dict["worker_pool_restarts"] = True
+
+celery_app.conf.update(**config_dict)
 
 # Export the Celery application instance
 # 

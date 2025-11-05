@@ -154,16 +154,30 @@ class FaissIndexManager:
         # Normalize each embedding vector and stack them into a matrix
         # Normalize to unit vectors for proper cosine similarity computation
         vectors = np.stack([self._normalize(e) for e in embeddings]).astype("float32")
-        
+
         # Add vectors to the index
         index.add(vectors)
-        
-        # Persist the updated index to file
-        faiss.write_index(index, str(self.index_path))
+
+        # Persist the updated index to file with error handling
+        try:
+            # Write to a temporary file first to avoid corrupting the index
+            temp_index_path = self.index_path.with_suffix('.faiss.tmp')
+            faiss.write_index(index, str(temp_index_path))
+
+            # If write succeeded, replace the old index atomically
+            if temp_index_path.exists():
+                temp_index_path.replace(self.index_path)
+
+        except Exception as exc:
+            logger.error("Failed to write FAISS index: %s", exc)
+            # Clean up temporary file if it exists
+            if temp_index_path.exists():
+                temp_index_path.unlink()
+            raise
 
         # Extend the metadata list with new metadata entries
         metadata_list.extend(metadata)
-        
+
         # Write the updated metadata to file
         self._write_metadata(metadata_list)
 
@@ -257,13 +271,27 @@ class FaissIndexManager:
 
         # Create a new FAISS index with inner product metric
         index = faiss.IndexFlatIP(self.dimension)
-        
+
         # Stack and normalize embeddings, then add to index
         index.add(np.stack([self._normalize(e) for e in embeddings]))
-        
-        # Write the new index to file
-        faiss.write_index(index, str(self.index_path))
-        
+
+        # Write the new index to file with error handling
+        try:
+            # Write to a temporary file first to avoid corrupting the index
+            temp_index_path = self.index_path.with_suffix('.faiss.tmp')
+            faiss.write_index(index, str(temp_index_path))
+
+            # If write succeeded, replace the old index atomically
+            if temp_index_path.exists():
+                temp_index_path.replace(self.index_path)
+
+        except Exception as exc:
+            logger.error("Failed to write FAISS index during rebuild: %s", exc)
+            # Clean up temporary file if it exists
+            if temp_index_path.exists():
+                temp_index_path.unlink()
+            raise
+
         # Write corresponding metadata to file
         self._write_metadata(metadata)
 
@@ -383,7 +411,7 @@ class FaissIndexManager:
     def _load_index(self) -> FaissIndex:
         """
         Load the FAISS index from file or create a new one if it doesn't exist.
-        
+
         Returns:
             FaissIndex: The loaded FAISS index instance.
         """
@@ -393,7 +421,32 @@ class FaissIndexManager:
             )
 
         if self.index_path.exists():
-            return faiss.read_index(str(self.index_path))
+            try:
+                # Attempt to read the existing index file
+                index = faiss.read_index(str(self.index_path))
+
+                # Verify the index has the correct dimension
+                if index.d != self.dimension:
+                    logger.warning(
+                        "FAISS index dimension mismatch: expected %d, got %d. Creating new index.",
+                        self.dimension, index.d
+                    )
+                    # Delete corrupted index files
+                    self._clear_files()
+                    return faiss.IndexFlatIP(self.dimension)
+
+                return index
+
+            except Exception as exc:
+                # Handle corrupted or invalid index files
+                logger.warning(
+                    "Failed to load FAISS index from %s: %s. Creating new index.",
+                    self.index_path, exc
+                )
+                # Delete corrupted files and start fresh
+                self._clear_files()
+                return faiss.IndexFlatIP(self.dimension)
+
         return faiss.IndexFlatIP(self.dimension)
 
     def _load_metadata(self) -> List[Dict[str, Any]]:

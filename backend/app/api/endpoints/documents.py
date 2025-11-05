@@ -152,9 +152,15 @@ async def upload_document(
                 fund_id = existing_fund.id
             else:
                 # Create a new fund with extracted information
+                # Ensure field lengths don't exceed database limits (VARCHAR 255)
+                fund_name = fund_info.get('fund_name', f'Fund from {filename}')[:250]
+                gp_name = fund_info.get('gp_name')
+                if gp_name:
+                    gp_name = gp_name[:250]
+
                 new_fund = Fund(
-                    name=fund_info.get('fund_name', f'Fund from {filename}'),
-                    gp_name=fund_info.get('gp_name'),
+                    name=fund_name,
+                    gp_name=gp_name,
                     vintage_year=fund_info.get('vintage_year'),
                     fund_type="Private Equity"  # Default type, could be extracted if available
                 )

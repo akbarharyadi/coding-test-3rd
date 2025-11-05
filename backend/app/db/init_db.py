@@ -1,8 +1,13 @@
 """
 Database initialization
 """
-from sqlalchemy import text
+import sys
+from pathlib import Path
 
+# Add parent directory to path to allow imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from sqlalchemy import text
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
 from app.core.config import settings
@@ -15,17 +20,33 @@ from app.models.conversation import Conversation, Message  # noqa: F401
 
 def init_db():
     """Initialize database tables"""
+    # First, create the pgvector extension
+    with SessionLocal() as session:
+        try:
+            print("Creating pgvector extension...")
+            session.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            session.commit()
+            print("✓ pgvector extension created")
+        except Exception as e:
+            print(f"Error creating pgvector extension: {e}")
+            session.rollback()
+            raise
+
+    # Create other tables
+    print("Creating database tables...")
     Base.metadata.create_all(bind=engine)
+    print("✓ Base tables created")
 
     dimension = (
         1536
         if settings.OPENAI_API_KEY
         else settings.OLLAMA_EMBED_DIMENSION if settings.OLLAMA_BASE_URL else 384
     )
+    print(f"Using embedding dimension: {dimension}")
 
     with SessionLocal() as session:
         try:
-            session.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            # Check if document_embeddings table exists and get its dimension
             existing_dim = session.execute(
                 text(
                     """
@@ -41,10 +62,13 @@ def init_db():
             existing_dim = None
 
         if existing_dim and int(existing_dim) != dimension:
+            print(f"Dimension mismatch detected. Recreating table with dimension {dimension}...")
             session.execute(text("DROP INDEX IF EXISTS document_embeddings_embedding_idx"))
             session.execute(text("DROP TABLE IF EXISTS document_embeddings"))
             session.commit()
 
+        # Create document_embeddings table
+        print("Creating document_embeddings table...")
         session.execute(
             text(
                 f"""
@@ -60,6 +84,11 @@ def init_db():
                 """
             )
         )
+        session.commit()
+        print("✓ document_embeddings table created")
+
+        # Create index
+        print("Creating vector index...")
         session.execute(
             text(
                 """
@@ -70,7 +99,9 @@ def init_db():
             )
         )
         session.commit()
-    print("Database tables created successfully!")
+        print("✓ Vector index created")
+
+    print("\n✅ Database initialized successfully!")
 
 
 if __name__ == "__main__":

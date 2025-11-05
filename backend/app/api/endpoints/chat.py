@@ -43,6 +43,9 @@ async def process_chat_query(
     
     # Process query
     query_engine = QueryEngine(db)
+    
+    # If no fund_id is provided, the QueryEngine will now search across all funds
+    # and identify the appropriate fund based on the document results
     response = await query_engine.process_query(
         query=request.query,
         fund_id=request.fund_id,

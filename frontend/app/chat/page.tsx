@@ -32,19 +32,17 @@ export default function ChatPage() {
   const createNewConversation = async (fundId?: number) => {
     try {
       const conv = await chatApi.createConversation(fundId || currentFundId);
-      setConversationId(conv.conversation_id);
-      // Don't clear messages here, since we're adding to the same session
-      return conv.conversation_id;
+      const newConvId = conv.conversation_id;
+      setConversationId(newConvId);
+      // Mark this conversation as already loaded to prevent useEffect from reloading it
+      setLastLoadedConversationId(newConvId);
+      // Clear messages to start fresh conversation
+      setMessages([]);
+      return newConvId;
     } catch (error) {
       console.error('Error creating conversation:', error);
       return null;
     }
-  }
-
-  const refreshConversations = () => {
-    // This function will be passed to the sidebar to allow it to refresh conversations
-    // We can trigger a refresh by calling queryClient.invalidateQueries
-    // But we need to import QueryClient from '@tanstack/react-query' to do that
   }
 
   const loadConversation = async (id: string) => {
@@ -67,12 +65,16 @@ export default function ChatPage() {
     }
   }
 
+  // Track the last loaded conversation to prevent reloading the same one
+  const [lastLoadedConversationId, setLastLoadedConversationId] = useState<string | undefined>();
+
   useEffect(() => {
-    if (conversationId) {
-      // Load the selected conversation when conversationId changes
+    if (conversationId && conversationId !== lastLoadedConversationId) {
+      // Only load if this is a different conversation than what's currently loaded
       loadConversation(conversationId);
+      setLastLoadedConversationId(conversationId);
     }
-  }, [conversationId])
+  }, [conversationId, lastLoadedConversationId])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })

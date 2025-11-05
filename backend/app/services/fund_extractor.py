@@ -61,18 +61,19 @@ class FundExtractor:
     def extract_fund_info_from_text(self, text: str) -> Dict[str, Any]:
         """
         Extract fund information from text content.
-        
+
         Args:
             text: The text content extracted from the PDF document
-            
+
         Returns:
             Dictionary containing extracted fund information
         """
         fund_info = {}
-        
-        # Clean the text by removing extra whitespace
-        clean_text = re.sub(r'\s+', ' ', text)
-        
+
+        # Clean the text but preserve line breaks to prevent cross-section matches
+        # Only collapse multiple spaces within lines
+        clean_text = re.sub(r' +', ' ', text)
+
         # Extract each field using defined patterns
         for field, patterns in self.patterns.items():
             for pattern in patterns:
@@ -80,9 +81,15 @@ class FundExtractor:
                 if match:
                     value = match.group(1).strip()
                     if value and field not in fund_info:  # Don't overwrite if already found
+                        # Limit extracted value length to prevent capturing entire tables
+                        # Fund names and GP names are typically < 100 chars
+                        if field in ['fund_name', 'gp_name']:
+                            # Take only the first line and limit to 200 chars
+                            value = value.split('\n')[0].split('\r')[0][:200]
+
                         fund_info[field] = self._clean_value(value, field)
                         break  # Move to next field after first match
-        
+
         return fund_info
     
     def _clean_value(self, value: str, field_type: str) -> Any:
@@ -131,15 +138,17 @@ class FundExtractor:
 def extract_fund_info_from_segments(text_segments: List['TextSegment']) -> Dict[str, Any]:
     """
     Extract fund information from a list of text segments.
-    
+
     Args:
         text_segments: List of text segments extracted from the PDF
-        
+
     Returns:
         Dictionary containing extracted fund information
     """
     extractor = FundExtractor()
-    combined_text = " ".join([seg.text for seg in text_segments])
+    # Join with newlines to preserve document structure and prevent
+    # regex patterns from matching across unrelated sections
+    combined_text = "\n".join([seg.text for seg in text_segments])
     return extractor.extract_fund_info_from_text(combined_text)
 
 

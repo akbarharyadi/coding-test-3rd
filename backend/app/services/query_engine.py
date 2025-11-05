@@ -8,7 +8,7 @@ from langchain_openai import ChatOpenAI
 from langchain_community.llms import Ollama
 from langchain.prompts import ChatPromptTemplate
 from app.core.config import settings
-from app.services.vector_store import VectorStore
+from app.services.search_service import SearchService
 from app.services.metrics_calculator import MetricsCalculator
 from app.services.cache_service import cache_service
 from sqlalchemy.orm import Session
@@ -21,7 +21,7 @@ class QueryEngine:
 
     def __init__(self, db: Session, use_cache: bool = True):
         self.db = db
-        self.vector_store = VectorStore()
+        self.search_service = SearchService(db=db)
         self.metrics_calculator = MetricsCalculator(db)
         self.llm = self._initialize_llm()
         self.use_cache = use_cache
@@ -68,13 +68,13 @@ class QueryEngine:
 
         # Step 1: Classify query intent
         intent = await self._classify_intent(query)
-        
-        # Step 2: Retrieve relevant context from vector store
-        filter_metadata = {"fund_id": fund_id} if fund_id else None
-        relevant_docs = await self.vector_store.similarity_search(
+
+        # Step 2: Retrieve relevant context using search service (supports FAISS and PostgreSQL)
+        relevant_docs = await self.search_service.search(
             query=query,
             k=settings.TOP_K_RESULTS,
-            filter_metadata=filter_metadata
+            fund_id=fund_id,
+            include_content=True
         )
         
         # Step 3: Calculate metrics if needed
@@ -100,14 +100,12 @@ class QueryEngine:
             "answer": answer,
             "sources": [
                 {
-                    "content": doc["content"],
-                    "metadata": {
-                        k: v for k, v in doc.items()
-                        if k not in ["content", "score"]
-                    },
+                    "content": doc.get("content", ""),
+                    "metadata": doc.get("metadata", {}),
                     "score": doc.get("score")
                 }
                 for doc in relevant_docs
+                if doc.get("content")  # Only include sources with content
             ],
             "metrics": metrics,
             "processing_time": round(processing_time, 2),
@@ -172,8 +170,9 @@ class QueryEngine:
             context_str = "[No relevant documents found in the database]"
         else:
             context_str = "\n\n".join([
-                f"[Source {i+1}]\n{doc['content']}"
+                f"[Source {i+1}]\n{doc.get('content', '')}"
                 for i, doc in enumerate(context[:3])  # Use top 3 sources
+                if doc.get('content')  # Only include docs with content
             ])
         
         # Build metrics string

@@ -105,3 +105,86 @@ export const metricsApi = {
     return response.data
   },
 }
+
+// Search APIs
+export interface SearchRequest {
+  query: string
+  k?: number
+  fund_id?: number
+  document_id?: number
+  backend?: 'postgresql' | 'faiss' | 'hybrid'
+  include_content?: boolean
+}
+
+export interface SearchResult {
+  content?: string
+  metadata: {
+    document_id?: number
+    document_title?: string
+    fund_id?: number
+    fund_name?: string
+    page_number?: number
+    offset_start?: number
+    offset_end?: number
+    [key: string]: any
+  }
+  score: number
+  source: string
+}
+
+export interface SearchResponse {
+  results: SearchResult[]
+  total: number
+  query: string
+  backend_used: string
+  processing_time?: number
+}
+
+export interface SearchStats {
+  available_backends: string[]
+  preferred_backend: string
+  faiss_available: boolean
+  faiss_vectors?: number
+  postgresql_available: boolean
+}
+
+export const searchApi = {
+  // Perform semantic search
+  search: async (request: SearchRequest): Promise<SearchResponse> => {
+    const response = await api.post('/api/search/', request)
+    return response.data
+  },
+
+  // Convenience method for simple searches
+  simpleSearch: async (
+    query: string,
+    options?: {
+      k?: number
+      fundId?: number
+      documentId?: number
+      backend?: 'postgresql' | 'faiss' | 'hybrid'
+    }
+  ): Promise<SearchResponse> => {
+    const params: any = { query }
+    if (options?.k) params.k = options.k
+    if (options?.fundId) params.fund_id = options.fundId
+    if (options?.documentId) params.document_id = options.documentId
+    if (options?.backend) params.backend = options.backend
+
+    const response = await api.get('/api/search/', { params })
+    return response.data
+  },
+
+  // Get search service statistics
+  getStats: async (): Promise<SearchStats> => {
+    const response = await api.get('/api/search/stats')
+    return response.data
+  },
+
+  // Rebuild FAISS index
+  rebuildIndex: async (fundId?: number): Promise<{ message: string; vectors_indexed: number; fund_id?: number }> => {
+    const params = fundId ? { fund_id: fundId } : {}
+    const response = await api.post('/api/search/rebuild-index', null, { params })
+    return response.data
+  },
+}

@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Home, Upload, MessageSquare, BarChart3, FileText } from 'lucide-react'
+import { Home, Upload, MessageSquare, BarChart3, FileText, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const navItems = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/upload', label: 'Upload', icon: Upload },
+  { href: '/search', label: 'Search', icon: Search },
   { href: '/chat', label: 'Chat', icon: MessageSquare },
   { href: '/funds', label: 'Funds', icon: BarChart3 },
   { href: '/documents', label: 'Documents', icon: FileText },

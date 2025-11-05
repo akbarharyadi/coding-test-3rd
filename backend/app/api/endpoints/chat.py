@@ -95,9 +95,10 @@ async def create_conversation(request: ConversationCreate, db: Session = Depends
     conversation_id = str(uuid.uuid4())
     
     # Create conversation in database
+    # Don't associate with fund by default to keep conversations separate
     new_conversation = ConversationModel(
         conversation_id=conversation_id,
-        fund_id=request.fund_id,
+        fund_id=request.fund_id,  # Only set if explicitly provided
         title=None  # Title will be set when first message is added
     )
     db.add(new_conversation)
@@ -107,6 +108,7 @@ async def create_conversation(request: ConversationCreate, db: Session = Depends
     return Conversation(
         conversation_id=conversation_id,
         fund_id=new_conversation.fund_id,
+        title=new_conversation.title,
         messages=[],
         created_at=new_conversation.created_at,
         updated_at=new_conversation.updated_at

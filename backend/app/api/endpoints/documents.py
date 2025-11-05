@@ -16,6 +16,7 @@ import shutil
 from datetime import datetime
 from app.db.session import get_db
 from app.models.document import Document
+from app.models.fund import Fund
 from app.schemas.document import (
     Document as DocumentSchema,
     DocumentUploadResponse,
@@ -23,6 +24,8 @@ from app.schemas.document import (
 )
 from app.core.config import settings
 from app.tasks.document_tasks import process_document_task as _process_document_task
+from app.services.fund_extractor import extract_fund_info_from_segments, extract_fund_info_from_tables
+from app.helpers.document_utils import extract_with_docling, extract_with_pdfplumber, TextSegment, TableCandidate
 
 process_document_task: Task = typing_cast(Task, _process_document_task)
 
@@ -32,7 +35,7 @@ router = APIRouter()
 @router.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document(
     file: UploadFile = File(...),
-    fund_id: int = 1,
+    fund_id: Optional[int] = None,  # Changed to optional - will auto-create fund if not provided
     db: Session = Depends(get_db)
 ):
     """
@@ -43,10 +46,13 @@ async def upload_document(
     record with initial status 'pending', and initiates background processing
     to parse the document and store it in the vector database for similarity search.
     
+    If no fund_id is provided, the system will attempt to extract fund information
+    from the document and create a new fund automatically.
+    
     Args:
         background_tasks (BackgroundTasks): FastAPI dependency for managing background tasks
         file (UploadFile): The PDF file to upload, provided as multipart form data
-        fund_id (int): The fund ID to associate with the document (defaults to 1)
+        fund_id (Optional[int]): The fund ID to associate with the document (auto-create if not provided)
         db (Session): Database session dependency provided by FastAPI's Depends()
     
     Raises:
@@ -129,6 +135,45 @@ async def upload_document(
                 pass  # Ignore cleanup errors
         raise HTTPException(status_code=500, detail=f"Error saving file: {str(e)}")
     
+    # If no fund_id provided, extract fund information from the PDF and create a new fund
+    if fund_id is None:
+        try:
+            # Extract fund info from the document to create a fund
+            fund_info = await _extract_fund_info_from_document(file_path)
+            
+            # Check if a fund with the same name already exists
+            existing_fund = None
+            if fund_info.get('fund_name'):
+                existing_fund = db.query(Fund).filter(
+                    Fund.name.ilike(f"%{fund_info['fund_name']}%")
+                ).first()
+            
+            if existing_fund:
+                fund_id = existing_fund.id
+            else:
+                # Create a new fund with extracted information
+                new_fund = Fund(
+                    name=fund_info.get('fund_name', f'Fund from {filename}'),
+                    gp_name=fund_info.get('gp_name'),
+                    vintage_year=fund_info.get('vintage_year'),
+                    fund_type="Private Equity"  # Default type, could be extracted if available
+                )
+                db.add(new_fund)
+                db.commit()
+                db.refresh(new_fund)
+                fund_id = new_fund.id
+        except Exception as e:
+            # If fund extraction fails, create a generic fund
+            new_fund = Fund(
+                name=f"Fund from {filename}",
+                gp_name=None,
+                vintage_year=None
+            )
+            db.add(new_fund)
+            db.commit()
+            db.refresh(new_fund)
+            fund_id = new_fund.id
+    
     # Create database record for the document with initial 'pending' status
     # This allows tracking the processing status even before background processing completes
     try:
@@ -164,6 +209,48 @@ async def upload_document(
         status="pending",
         message="Document uploaded successfully. Processing task enqueued.",
     )
+
+
+async def _extract_fund_info_from_document(file_path: str) -> dict:
+    """
+    Extract fund information from a PDF document.
+    
+    Args:
+        file_path: Path to the PDF file
+        
+    Returns:
+        Dictionary containing extracted fund information
+    """
+    # Try to extract using docling first (better for structured documents)
+    try:
+        from docling.document_converter import DocumentConverter
+        converter = DocumentConverter()
+        tables, text_segments = extract_with_docling(
+            file_path=file_path,
+            document_id=0,  # We don't have a document ID yet
+            fund_id=0,      # We don't have a fund ID yet
+            converter=converter,
+        )
+        
+        # Extract fund info from both text and tables
+        fund_info = extract_fund_info_from_segments(text_segments)
+        fund_info.update(extract_fund_info_from_tables(tables))
+        
+        return fund_info
+    
+    except ImportError:
+        # If docling isn't available, use pdfplumber
+        tables, text_segments = extract_with_pdfplumber(
+            file_path=file_path,
+            document_id=0,  # We don't have a document ID yet
+            fund_id=0,      # We don't have a fund ID yet
+        )
+        
+        # Extract fund info from both text and tables
+        fund_info = extract_fund_info_from_segments(text_segments)
+        fund_info.update(extract_fund_info_from_tables(tables))
+        
+        return fund_info
 
 
 @router.get("/{document_id}/status", response_model=DocumentStatus)
@@ -234,7 +321,7 @@ async def get_document(document_id: int, db: Session = Depends(get_db)):
 
 @router.get("/", response_model=List[DocumentSchema])
 async def list_documents(
-    fund_id: int = 1,
+    fund_id: Optional[int] = None,  # Changed to optional
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db)
@@ -246,7 +333,7 @@ async def list_documents(
     The results include document metadata, status, and file information.
     
     Args:
-        fund_id (int, optional): Filter documents by fund ID if provided
+        fund_id (Optional[int]): Filter documents by fund ID if provided
         skip (int): Number of records to skip for pagination (default: 0)
         limit (int): Maximum number of records to return (default: 100, max: 1000)
         db (Session): Database session dependency provided by FastAPI's Depends()
@@ -269,7 +356,7 @@ async def list_documents(
     try:
         query = db.query(Document)
         
-        if fund_id:
+        if fund_id is not None:
             query = query.filter(Document.fund_id == fund_id)
         
         documents = query.offset(skip).limit(limit).all()

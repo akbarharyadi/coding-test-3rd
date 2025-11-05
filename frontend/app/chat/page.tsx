@@ -25,9 +25,13 @@ export default function ChatPage() {
   const queryClient = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const createNewConversation = async () => {
+  // We might want to get the fund ID from the URL or context
+  // For now, let's assume no specific fund unless explicitly provided
+  const currentFundId: number | null = null; // This would come from URL params or context
+
+  const createNewConversation = async (fundId?: number) => {
     try {
-      const conv = await chatApi.createConversation(undefined);
+      const conv = await chatApi.createConversation(fundId || currentFundId);
       setConversationId(conv.conversation_id);
       // Don't clear messages here, since we're adding to the same session
       return conv.conversation_id;
@@ -81,6 +85,8 @@ export default function ChatPage() {
     // Create a new conversation if none exists
     let currentConversationId = conversationId;
     if (!currentConversationId) {
+      // You could pass a fundId here if you're in a fund-specific context
+      // For example, if this chat page were accessed with a fund context
       currentConversationId = await createNewConversation();
       if (!currentConversationId) {
         return; // If we couldn't create a conversation, exit
@@ -98,6 +104,8 @@ export default function ChatPage() {
     setLoading(true)
 
     try {
+      // For now, we're not passing a fundId to the query, but it could be added
+      // depending on the current context (e.g. if user is viewing a specific fund)
       const response = await chatApi.query(input, undefined, currentConversationId)
 
       const assistantMessage: Message = {

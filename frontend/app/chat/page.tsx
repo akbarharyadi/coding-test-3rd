@@ -11,6 +11,7 @@ interface Message {
   sources?: any[]
   metrics?: any
   timestamp: Date
+  noDocumentsFound?: boolean
 }
 
 export default function ChatPage() {
@@ -47,13 +48,14 @@ export default function ChatPage() {
 
     try {
       const response = await chatApi.query(input, undefined, conversationId)
-      
+
       const assistantMessage: Message = {
         role: 'assistant',
         content: response.answer,
         sources: response.sources,
         metrics: response.metrics,
-        timestamp: new Date()
+        timestamp: new Date(),
+        noDocumentsFound: response.no_documents_found
       }
 
       setMessages(prev => [...prev, assistantMessage])
@@ -154,7 +156,22 @@ function MessageBubble({ message }: { message: Message }) {
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-3xl ${isUser ? 'ml-12' : 'mr-12'}`}>
+      <div className={`max-w-3xl ${isUser ? 'ml-12' : 'mr-12'} w-full`}>
+        {/* Warning banner for no documents found */}
+        {!isUser && message.noDocumentsFound && (
+          <div className="mb-3 bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-start gap-2">
+            <svg className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div className="text-sm">
+              <div className="font-medium text-yellow-900">No relevant documents found</div>
+              <div className="text-yellow-700 mt-0.5">
+                The system couldn't find documents matching your query. The response below provides general guidance.
+              </div>
+            </div>
+          </div>
+        )}
+
         <div
           className={`rounded-lg p-4 ${
             isUser

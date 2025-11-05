@@ -31,7 +31,7 @@ class QueryEngine:
             )
         else:
             # Fallback to local LLM
-            return Ollama(model="llama2")
+            return Ollama(model="llama3.2-3b-fast")
     
     async def process_query(
         self, 
@@ -68,23 +68,27 @@ class QueryEngine:
         if intent == "calculation" and fund_id:
             metrics = self.metrics_calculator.calculate_all_metrics(fund_id)
         
-        # Step 4: Generate response using LLM
+        # Step 4: Check if documents were found
+        no_documents_found = len(relevant_docs) == 0
+
+        # Step 5: Generate response using LLM
         answer = await self._generate_response(
             query=query,
             context=relevant_docs,
             metrics=metrics,
-            conversation_history=conversation_history or []
+            conversation_history=conversation_history or [],
+            no_documents_found=no_documents_found
         )
-        
+
         processing_time = time.time() - start_time
-        
+
         return {
             "answer": answer,
             "sources": [
                 {
                     "content": doc["content"],
                     "metadata": {
-                        k: v for k, v in doc.items() 
+                        k: v for k, v in doc.items()
                         if k not in ["content", "score"]
                     },
                     "score": doc.get("score")
@@ -92,7 +96,8 @@ class QueryEngine:
                 for doc in relevant_docs
             ],
             "metrics": metrics,
-            "processing_time": round(processing_time, 2)
+            "processing_time": round(processing_time, 2),
+            "no_documents_found": no_documents_found
         }
     
     async def _classify_intent(self, query: str) -> str:
@@ -135,15 +140,19 @@ class QueryEngine:
         query: str,
         context: List[Dict[str, Any]],
         metrics: Optional[Dict[str, Any]],
-        conversation_history: List[Dict[str, str]]
+        conversation_history: List[Dict[str, str]],
+        no_documents_found: bool = False
     ) -> str:
         """Generate response using LLM"""
-        
+
         # Build context string
-        context_str = "\n\n".join([
-            f"[Source {i+1}]\n{doc['content']}"
-            for i, doc in enumerate(context[:3])  # Use top 3 sources
-        ])
+        if no_documents_found:
+            context_str = "[No relevant documents found in the database]"
+        else:
+            context_str = "\n\n".join([
+                f"[Source {i+1}]\n{doc['content']}"
+                for i, doc in enumerate(context[:3])  # Use top 3 sources
+            ])
         
         # Build metrics string
         metrics_str = ""
@@ -160,9 +169,24 @@ class QueryEngine:
             for msg in conversation_history[-3:]:  # Last 3 messages
                 history_str += f"{msg['role']}: {msg['content']}\n"
         
-        # Create prompt
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a financial analyst assistant specializing in private equity fund performance.
+        # Create prompt based on whether documents were found
+        if no_documents_found:
+            system_message = """You are a financial analyst assistant specializing in private equity fund performance.
+
+IMPORTANT: No relevant documents were found for this query in the database.
+
+Your role:
+- Explain that no relevant documents were found
+- Suggest possible reasons (e.g., query might need rephrasing, more documents need to be uploaded)
+- Provide helpful suggestions for what the user can do next
+- If asked about general financial concepts, you can provide brief educational information
+- Be helpful and guide the user to get better results
+
+Do NOT:
+- Hallucinate or make up specific information about documents that don't exist
+- Provide specific fund data without sources"""
+        else:
+            system_message = """You are a financial analyst assistant specializing in private equity fund performance.
 
 Your role:
 - Answer questions about fund performance using provided context
@@ -179,7 +203,10 @@ Format your responses:
 - Be concise but thorough
 - Use bullet points for lists
 - Bold important numbers using **number**
-- Provide context for metrics"""),
+- Provide context for metrics"""
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_message),
             ("user", """Context from documents:
 {context}
 {metrics}

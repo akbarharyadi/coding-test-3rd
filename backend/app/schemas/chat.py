@@ -34,6 +34,7 @@ class ChatQueryResponse(BaseModel):
     metrics: Optional[Dict[str, Any]] = None
     processing_time: Optional[float] = None
     no_documents_found: Optional[bool] = False
+    cached: Optional[bool] = False
 
 
 class ConversationCreate(BaseModel):

@@ -3,23 +3,28 @@ Query engine service for RAG-based question answering
 """
 from typing import Dict, Any, List, Optional
 import time
+import logging
 from langchain_openai import ChatOpenAI
 from langchain_community.llms import Ollama
 from langchain.prompts import ChatPromptTemplate
 from app.core.config import settings
 from app.services.vector_store import VectorStore
 from app.services.metrics_calculator import MetricsCalculator
+from app.services.cache_service import cache_service
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 
 class QueryEngine:
     """RAG-based query engine for fund analysis"""
-    
-    def __init__(self, db: Session):
+
+    def __init__(self, db: Session, use_cache: bool = True):
         self.db = db
         self.vector_store = VectorStore()
         self.metrics_calculator = MetricsCalculator(db)
         self.llm = self._initialize_llm()
+        self.use_cache = use_cache
     
     def _initialize_llm(self):
         """Initialize LLM"""
@@ -34,24 +39,33 @@ class QueryEngine:
             return Ollama(model="llama3.2-3b-fast")
     
     async def process_query(
-        self, 
-        query: str, 
+        self,
+        query: str,
         fund_id: Optional[int] = None,
         conversation_history: List[Dict[str, str]] = None
     ) -> Dict[str, Any]:
         """
-        Process a user query using RAG
-        
+        Process a user query using RAG with caching
+
         Args:
             query: User question
             fund_id: Optional fund ID for context
             conversation_history: Previous conversation messages
-            
+
         Returns:
             Response with answer, sources, and metrics
         """
         start_time = time.time()
-        
+
+        # Check cache first (only for queries without conversation history)
+        if self.use_cache and not conversation_history:
+            cached_result = cache_service.get_query_cache(query, fund_id)
+            if cached_result:
+                logger.info(f"Cache hit for query: {query[:50]}...")
+                cached_result["processing_time"] = round(time.time() - start_time, 2)
+                cached_result["cached"] = True
+                return cached_result
+
         # Step 1: Classify query intent
         intent = await self._classify_intent(query)
         
@@ -82,7 +96,7 @@ class QueryEngine:
 
         processing_time = time.time() - start_time
 
-        return {
+        result = {
             "answer": answer,
             "sources": [
                 {
@@ -97,8 +111,16 @@ class QueryEngine:
             ],
             "metrics": metrics,
             "processing_time": round(processing_time, 2),
-            "no_documents_found": no_documents_found
+            "no_documents_found": no_documents_found,
+            "cached": False
         }
+
+        # Cache result (only for queries without conversation history)
+        if self.use_cache and not conversation_history:
+            cache_service.set_query_cache(query, result, fund_id, ttl=3600)
+            logger.info(f"Cached query result: {query[:50]}...")
+
+        return result
     
     async def _classify_intent(self, query: str) -> str:
         """

@@ -71,6 +71,15 @@ export default function ChatPage() {
     }
   }
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Submit on Enter (without Shift)
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSubmit(e as any)
+    }
+    // Allow Shift+Enter for new line (default textarea behavior)
+  }
+
   return (
     <div className="max-w-5xl mx-auto h-[calc(100vh-12rem)]">
       <div className="mb-4">
@@ -127,24 +136,41 @@ export default function ChatPage() {
 
         {/* Input Area */}
         <div className="border-t p-4">
-          <form onSubmit={handleSubmit} className="flex space-x-2">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask a question about the fund..."
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={loading}
-            />
+          <form onSubmit={handleSubmit} className="flex space-x-2 items-end">
+            <div className="flex-1">
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Ask a question about the fund... (Shift+Enter for new line)"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                disabled={loading}
+                rows={1}
+                style={{
+                  minHeight: '42px',
+                  maxHeight: '200px',
+                  height: 'auto',
+                  overflowY: input.split('\n').length > 5 ? 'auto' : 'hidden'
+                }}
+                onInput={(e) => {
+                  const target = e.target as HTMLTextAreaElement
+                  target.style.height = 'auto'
+                  target.style.height = `${Math.min(target.scrollHeight, 200)}px`
+                }}
+              />
+            </div>
             <button
               type="submit"
               disabled={loading || !input.trim()}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 h-[42px]"
             >
               <Send className="w-4 h-4" />
               <span>Send</span>
             </button>
           </form>
+          <p className="text-xs text-gray-500 mt-2">
+            Press <kbd className="px-1 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">Enter</kbd> to send, <kbd className="px-1 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">Shift+Enter</kbd> for new line
+          </p>
         </div>
       </div>
     </div>
@@ -166,7 +192,7 @@ function MessageBubble({ message }: { message: Message }) {
             <div className="text-sm">
               <div className="font-medium text-yellow-900">No relevant documents found</div>
               <div className="text-yellow-700 mt-0.5">
-                The system couldn't find documents matching your query. The response below provides general guidance.
+                The system couldn&apos;t find documents matching your query. The response below provides general guidance.
               </div>
             </div>
           </div>

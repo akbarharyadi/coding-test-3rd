@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import SearchInterface from '@/components/SearchInterface'
 import { SearchResult } from '@/lib/api'
 
-export default function SearchPage() {
+function SearchPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialQuery = searchParams?.get('q') || ''
@@ -134,5 +134,13 @@ export default function SearchPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function SearchPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center">Loading search...</div>}>
+      <SearchPageContent />
+    </Suspense>
   )
 }

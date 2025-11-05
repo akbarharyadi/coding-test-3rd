@@ -43,7 +43,7 @@ const ConversationSidebar = ({
     queryKey: ['conversations', fundId],
     queryFn: () => chatApi.listConversations(fundId),
     staleTime: 30000, // 30 seconds
-    cacheTime: 60000, // 60 seconds
+    gcTime: 60000, // 60 seconds (formerly cacheTime)
   });
 
   useEffect(() => {
@@ -137,7 +137,7 @@ const ConversationSidebar = ({
               <div className="p-4 text-center text-gray-500">No conversations yet</div>
             ) : (
               <div className="space-y-1">
-                {conversations.map((conv) => (
+                {conversations.map((conv: Conversation) => (
                   <div 
                     key={conv.conversation_id}
                     className={`group p-3 rounded-lg flex items-center justify-between

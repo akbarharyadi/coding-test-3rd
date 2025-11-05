@@ -22,15 +22,20 @@ class MetricsCalculator:
         total_distributions = self.calculate_total_distributions(fund_id)
         dpi = self.calculate_dpi(fund_id)
         irr = self.calculate_irr(fund_id)
-        
+        nav = self.calculate_nav(fund_id)
+        tvpi = self.calculate_tvpi(fund_id, pic, total_distributions, nav)
+        rvpi = self.calculate_rvpi(fund_id, pic, nav)
+        moic = self.calculate_moic(fund_id, pic, total_distributions, nav)
+
         return {
-            "pic": float(pic) if pic else 0,
-            "total_distributions": float(total_distributions) if total_distributions else 0,
-            "dpi": float(dpi) if dpi else 0,
-            "irr": float(irr) if irr else 0,
-            "tvpi": None,  # To be implemented
-            "rvpi": None,  # To be implemented
-            "nav": None,   # To be implemented
+            "paid_in_capital": float(pic) if pic else 0,
+            "distributed_capital": float(total_distributions) if total_distributions else 0,
+            "dpi": float(dpi) if dpi is not None else None,
+            "irr": float(irr) if irr is not None else None,
+            "tvpi": float(tvpi) if tvpi is not None else None,
+            "rvpi": float(rvpi) if rvpi is not None else None,
+            "moic": float(moic) if moic is not None else None,
+            "nav": float(nav) if nav is not None else 0,
         }
     
     def calculate_pic(self, fund_id: int) -> Optional[Decimal]:
@@ -275,3 +280,61 @@ class MetricsCalculator:
             }
         
         return {"error": "Unknown metric"}
+
+    def calculate_nav(self, fund_id: int) -> Optional[Decimal]:
+        """
+        Calculate Net Asset Value (NAV)
+        For now, this returns 0 as we don't have portfolio company valuations
+        In a real system, NAV = Sum of portfolio company values - liabilities
+        """
+        # Placeholder: Return 0 for now since we don't have valuation data
+        return Decimal(0)
+
+    def calculate_tvpi(self, fund_id: int, pic: Optional[Decimal] = None,
+                       total_distributions: Optional[Decimal] = None,
+                       nav: Optional[Decimal] = None) -> Optional[float]:
+        """
+        Calculate TVPI (Total Value to Paid-In)
+        TVPI = (Distributions + NAV) / PIC
+        """
+        if pic is None:
+            pic = self.calculate_pic(fund_id)
+        if total_distributions is None:
+            total_distributions = self.calculate_total_distributions(fund_id)
+        if nav is None:
+            nav = self.calculate_nav(fund_id)
+
+        if not pic or pic == 0:
+            return None
+
+        total_value = total_distributions + nav
+        tvpi = float(total_value) / float(pic)
+        return round(tvpi, 4)
+
+    def calculate_rvpi(self, fund_id: int, pic: Optional[Decimal] = None,
+                       nav: Optional[Decimal] = None) -> Optional[float]:
+        """
+        Calculate RVPI (Residual Value to Paid-In)
+        RVPI = NAV / PIC
+        """
+        if pic is None:
+            pic = self.calculate_pic(fund_id)
+        if nav is None:
+            nav = self.calculate_nav(fund_id)
+
+        if not pic or pic == 0:
+            return None
+
+        # Even if NAV is 0, RVPI should be 0 (not null)
+        rvpi = float(nav) / float(pic) if nav else 0.0
+        return round(rvpi, 4)
+
+    def calculate_moic(self, fund_id: int, pic: Optional[Decimal] = None,
+                       total_distributions: Optional[Decimal] = None,
+                       nav: Optional[Decimal] = None) -> Optional[float]:
+        """
+        Calculate MOIC (Multiple on Invested Capital)
+        MOIC = (Distributions + NAV) / PIC
+        Note: MOIC is the same as TVPI
+        """
+        return self.calculate_tvpi(fund_id, pic, total_distributions, nav)

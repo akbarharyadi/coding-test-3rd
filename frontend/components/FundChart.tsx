@@ -12,7 +12,8 @@ import {
   Legend,
   ResponsiveContainer,
   ComposedChart,
-  Area
+  Area,
+  AreaChart
 } from 'recharts';
 
 interface ChartDataPoint {

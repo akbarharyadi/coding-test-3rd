@@ -76,6 +76,13 @@ export const fundApi = {
     const response = await api.get(`/api/funds/${fundId}/historical_data`)
     return response.data
   },
+
+  compare: async (fundIds: number[]) => {
+    const response = await api.get('/api/funds/compare', {
+      params: { fund_ids: fundIds.join(',') }
+    })
+    return response.data
+  },
 }
 
 // Chat APIs

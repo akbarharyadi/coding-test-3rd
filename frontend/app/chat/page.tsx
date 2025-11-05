@@ -31,7 +31,7 @@ export default function ChatPage() {
 
   const createNewConversation = async (fundId?: number) => {
     try {
-      const conv = await chatApi.createConversation(fundId || currentFundId);
+      const conv = await chatApi.createConversation(fundId || currentFundId || undefined);
       const newConvId = conv.conversation_id;
       setConversationId(newConvId);
       // Mark this conversation as already loaded to prevent useEffect from reloading it

@@ -12,7 +12,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/init_pgvector.sql:/docker-entrypoint-initdb.d/init_pgvector.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U funduser"]
       interval: 10s
@@ -56,7 +55,7 @@ services:
         condition: service_healthy
     command: >
       sh -c "
-        python app/db/init_db.py &&
+        python -m app.db.init_db &&
         uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
       "
 
@@ -76,6 +75,24 @@ services:
     depends_on:
       - backend
     command: npm run dev
+
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fund-celery
+    environment:
+      - DATABASE_URL=postgresql://funduser:fundpass@postgres:5432/funddb
+      - REDIS_URL=redis://redis:6379/0
+      - UPLOAD_DIR=/app/uploads
+    volumes:
+      - ./backend:/app
+      - backend_uploads:/app/uploads
+    depends_on:
+      - postgres
+      - redis
+      - backend
+    command: celery -A app.core.celery_app.celery_app worker --pool=solo -Q documents --loglevel=info
 
 volumes:
   postgres_data:

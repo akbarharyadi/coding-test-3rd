@@ -246,6 +246,61 @@ class SearchService:
             fund_id=fund_id,
         )
 
+        # If no results found with fund_id filter, retry without filter
+        # and filter by fund name in the results
+        if not faiss_results and fund_id is not None:
+            from app.models.fund import Fund
+
+            # Get the fund name for this fund_id
+            fund = self.db.query(Fund).filter(Fund.id == fund_id).first()
+
+            if fund and fund.name:
+                logger.info(
+                    "No FAISS results found for fund_id=%s, retrying without filter and matching fund name '%s'",
+                    fund_id,
+                    fund.name
+                )
+                # Search across all funds
+                all_results = self.faiss_manager.search(
+                    query_embedding=query_embedding,
+                    k=k * 3,  # Get more results for filtering
+                    fund_id=None,
+                )
+
+                # Filter results by fund name in content or metadata
+                fund_name_lower = fund.name.lower()
+                gp_name_lower = fund.gp_name.lower() if fund.gp_name else None
+
+                for result in all_results:
+                    metadata = result.get("metadata", {})
+
+                    # Check if fund name or GP name appears in document name or metadata
+                    doc_name = metadata.get("document_name", "").lower()
+                    fund_name_meta = metadata.get("fund_name", "").lower()
+
+                    if (fund_name_lower in doc_name or
+                        fund_name_lower in fund_name_meta or
+                        (gp_name_lower and gp_name_lower in doc_name)):
+                        faiss_results.append(result)
+                        if len(faiss_results) >= k:
+                            break
+
+                if faiss_results:
+                    logger.info(
+                        "Found %s results by matching fund name '%s' in document metadata",
+                        len(faiss_results),
+                        fund.name
+                    )
+
+            # If still no results, use top results regardless of fund
+            if not faiss_results:
+                logger.info("No fund-name matches found, returning top results")
+                faiss_results = self.faiss_manager.search(
+                    query_embedding=query_embedding,
+                    k=k,
+                    fund_id=None,
+                )
+
         # Enrich results with content from database if needed
         if include_content or document_id is not None:
             faiss_results = await self._enrich_faiss_results(

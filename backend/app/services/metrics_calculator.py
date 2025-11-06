@@ -335,6 +335,17 @@ class MetricsCalculator:
         """
         Calculate MOIC (Multiple on Invested Capital)
         MOIC = (Distributions + NAV) / PIC
-        Note: MOIC is the same as TVPI
         """
-        return self.calculate_tvpi(fund_id, pic, total_distributions, nav)
+        if pic is None:
+            pic = self.calculate_pic(fund_id)
+        if total_distributions is None:
+            total_distributions = self.calculate_total_distributions(fund_id)
+        if nav is None:
+            nav = self.calculate_nav(fund_id)
+
+        if not pic or pic == 0:
+            return None
+
+        total_value = total_distributions + nav
+        moic = float(total_value) / float(pic)
+        return round(moic, 4)

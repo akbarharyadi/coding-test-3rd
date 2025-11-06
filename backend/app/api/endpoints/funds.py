@@ -34,7 +34,19 @@ async def list_funds(
     
     for fund in funds:
         fund_dict = FundSchema.model_validate(fund).model_dump()
-        metrics = calculator.calculate_all_metrics(fund.id)
+        calculated_metrics = calculator.calculate_all_metrics(fund.id)
+        
+        # Map field names to match the schema
+        metrics = {
+            "pic": calculated_metrics.get("paid_in_capital"),
+            "total_distributions": calculated_metrics.get("distributed_capital"),
+            "dpi": calculated_metrics.get("dpi"),
+            "irr": calculated_metrics.get("irr"),
+            "tvpi": calculated_metrics.get("tvpi"),
+            "rvpi": calculated_metrics.get("rvpi"),
+            "moic": calculated_metrics.get("moic"),
+            "nav": calculated_metrics.get("nav")
+        }
         fund_dict["metrics"] = FundMetrics(**metrics)
         result.append(FundSchema(**fund_dict))
     
@@ -85,7 +97,19 @@ async def compare_funds(
     comparison_data = []
 
     for fund in funds:
-        metrics = calculator.calculate_all_metrics(fund.id)
+        calculated_metrics = calculator.calculate_all_metrics(fund.id)
+
+        # Map field names to match the schema
+        mapped_metrics = {
+            "pic": calculated_metrics.get("paid_in_capital"),
+            "total_distributions": calculated_metrics.get("distributed_capital"),
+            "dpi": calculated_metrics.get("dpi"),
+            "irr": calculated_metrics.get("irr"),
+            "tvpi": calculated_metrics.get("tvpi"),
+            "rvpi": calculated_metrics.get("rvpi"),
+            "moic": calculated_metrics.get("moic"),
+            "nav": calculated_metrics.get("nav")
+        }
 
         # Get capital calls and distributions count
         capital_calls_count = db.query(CapitalCall).filter(CapitalCall.fund_id == fund.id).count()
@@ -96,7 +120,7 @@ async def compare_funds(
             'fund_name': fund.name,
             'gp_name': fund.gp_name,
             'vintage_year': fund.vintage_year,
-            'metrics': metrics,
+            'metrics': mapped_metrics,
             'capital_calls_count': capital_calls_count,
             'distributions_count': distributions_count,
         })
@@ -139,7 +163,19 @@ async def get_fund(fund_id: int, db: Session = Depends(get_db)):
 
     # Add metrics
     calculator = MetricsCalculator(db)
-    metrics = calculator.calculate_all_metrics(fund_id)
+    calculated_metrics = calculator.calculate_all_metrics(fund_id)
+
+    # Map field names to match the schema
+    metrics = {
+        "pic": calculated_metrics.get("paid_in_capital"),
+        "total_distributions": calculated_metrics.get("distributed_capital"),
+        "dpi": calculated_metrics.get("dpi"),
+        "irr": calculated_metrics.get("irr"),
+        "tvpi": calculated_metrics.get("tvpi"),
+        "rvpi": calculated_metrics.get("rvpi"),
+        "moic": calculated_metrics.get("moic"),
+        "nav": calculated_metrics.get("nav")
+    }
 
     fund_dict = FundSchema.model_validate(fund).model_dump()
     fund_dict["metrics"] = FundMetrics(**metrics)
@@ -234,9 +270,20 @@ async def get_fund_metrics(fund_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Fund not found")
     
     calculator = MetricsCalculator(db)
-    metrics = calculator.calculate_all_metrics(fund_id)
+    calculated_metrics = calculator.calculate_all_metrics(fund_id)
     
-    return FundMetrics(**metrics)
+    # Map field names to match the schema
+    mapped_metrics = {
+        "pic": calculated_metrics.get("paid_in_capital"),
+        "total_distributions": calculated_metrics.get("distributed_capital"),
+        "dpi": calculated_metrics.get("dpi"),
+        "irr": calculated_metrics.get("irr"),
+        "tvpi": calculated_metrics.get("tvpi"),
+        "rvpi": calculated_metrics.get("rvpi"),
+        "nav": calculated_metrics.get("nav")
+    }
+    
+    return FundMetrics(**mapped_metrics)
 
 
 @router.get("/{fund_id}/historical_data")

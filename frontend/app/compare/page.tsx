@@ -24,8 +24,8 @@ interface FundComparison {
     irr?: number
     moic?: number
     rvpi?: number
-    paid_in_capital?: number
-    distributed_capital?: number
+    pic?: number  // Paid-In Capital
+    total_distributions?: number  // Total Distributions
     nav?: number
   }
   rankings?: {
@@ -166,7 +166,7 @@ export default function ComparePage() {
                     </td>
                     {comparisonData.map(fund => (
                       <td key={fund.fund_id} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {formatMetric(fund.metrics.paid_in_capital, 'currency')}
+                        {formatMetric(fund.metrics.pic, 'currency')}
                       </td>
                     ))}
                   </tr>
@@ -178,7 +178,7 @@ export default function ComparePage() {
                     </td>
                     {comparisonData.map(fund => (
                       <td key={fund.fund_id} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {formatMetric(fund.metrics.distributed_capital, 'currency')}
+                        {formatMetric(fund.metrics.total_distributions, 'currency')}
                       </td>
                     ))}
                   </tr>

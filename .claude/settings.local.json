@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest:*)",
+      "Bash(venv311/Scripts/python.exe -m pytest:*)",
+      "Bash(venv311Scriptspip.exe list)",
+      "Bash(findstr:*)",
+      "Bash(\"venv311/Scripts/pip.exe\" list)",
+      "Bash(docker compose exec:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

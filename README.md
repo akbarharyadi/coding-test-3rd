@@ -297,23 +297,23 @@ curl -X POST "http://localhost:8000/api/funds/compare" \
 ## Screenshots
 
 ### 1. Chat Interface with Context Awareness
-![Chat Interface](files/screenshot/2025-11-06%20082754.png)
+![Chat Interface](files/screenshot/2025-11-06%20072545.png)
 *Natural language queries with conversation history and context awareness*
 
 ### 2. Multi-Fund Comparison
-![Fund Comparison](files/screenshot/2025-11-06%20072822.png)
+![Fund Comparison](files/screenshot/2025-11-06%20082754.png)
 *Compare performance metrics across multiple funds*
 
 ### 3. Fund Detail Page with Charts
-![Fund Details](files/screenshot/2025-11-06%20075714.png)
+![Fund Details](files/screenshot/2025-11-06%20081957.png)
 *Detailed fund performance with visual charts and transaction history*
 
 ### 4. Document Search
-![Search Interface](files/screenshot/2025-11-06%20072545.png)
-*Semantic search across all fund documents with source highlighting*
+![Search Interface](files/screenshot/2025-11-06%20072214.png)
+*Semantic search across all fund documents*
 
 ### 5. Conversation History
-![Conversation Sidebar](files/screenshot/2025-11-06%20083506.png)
+![Conversation Sidebar](files/screenshot/2025-11-06%20072545.png)
 *Persistent conversation history with automatic title generation*
 
 ## Known Limitations

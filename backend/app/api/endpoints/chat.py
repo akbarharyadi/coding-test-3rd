@@ -36,10 +36,29 @@ async def process_chat_query(
         messages_db = db.query(MessageModel).filter(
             MessageModel.conversation_id == request.conversation_id
         ).order_by(MessageModel.timestamp.desc()).limit(10).all()
-        conversation_history = [
-            {"role": msg.role, "content": msg.content, "timestamp": msg.timestamp}
-            for msg in reversed(messages_db)  # Reverse to get chronological order
-        ]
+        conversation_history = []
+        for msg in reversed(messages_db):  # Reverse to get chronological order
+            # Build the message content with metrics if available
+            content = msg.content
+
+            # Include metrics data if available for assistant messages
+            if msg.role == "assistant" and msg.metrics:
+                try:
+                    metrics_data = json.loads(msg.metrics) if isinstance(msg.metrics, str) else msg.metrics
+                    if metrics_data:
+                        content += "\n\n[Metrics returned in previous response:\n"
+                        for key, value in metrics_data.items():
+                            if value is not None:
+                                content += f"- {key.upper()}: {value}\n"
+                        content += "]"
+                except (json.JSONDecodeError, Exception):
+                    pass  # If metrics parsing fails, just skip it
+
+            conversation_history.append({
+                "role": msg.role,
+                "content": content,
+                "timestamp": msg.timestamp
+            })
     
     # Process query
     query_engine = QueryEngine(db)
